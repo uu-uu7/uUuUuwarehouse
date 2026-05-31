@@ -27,7 +27,6 @@
 #endif
 #include <sys/types.h>
 #include <sys/stat.h>
-#define IO_BUF_SIZE 1048576
 long long get_file_size(const char* filename) {
 	struct _stat64 st; 
 	if (_stat64(filename, &st) == 0) {
@@ -131,7 +130,7 @@ void frequency(const char* filename, fre* num,int model,fio*file_info,int*file_c
 		char buffer[2048] = { 0 };
 		int buffer_size = 0;
 		if (fp) {
-			while ((buffer_size = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
+			while ((buffer_size = fread(buffer, 1, sizeof(buffer), fp)) > 0) {//读取文件内容统计频率
 				for (int i = 0; i < buffer_size; i++) {
 					unsigned char ch = buffer[i];
 					num[ch].num++;
@@ -140,7 +139,7 @@ void frequency(const char* filename, fre* num,int model,fio*file_info,int*file_c
 			}
 			fclose(fp);
 			file_info[*file_count].size = get_file_size(filename);//记录文件大小
-			(*file_count)++; 
+			(*file_count)++; //记录文件数量
 		}
 		else {
 			printf("文件打开失败");
@@ -245,48 +244,49 @@ void generate_newname(const char* name, char* newname, int model, char* filesuff
 }
 void generate_code(node* root, code* codes, unsigned int current_code, int current_length) {//生成编码
 	if (root->left == NULL && root->right == NULL) {
-		codes[(unsigned char)root->name].code_number = current_code;
-		codes[(unsigned char)root->name].code_length = current_length;
+		codes[(unsigned char)root->name].code_number = current_code;//记录编码数字
+		codes[(unsigned char)root->name].code_length = current_length;//记录编码长度
 		return;
 	}
 	if (root->left != NULL) {
-		generate_code(root->left, codes, (current_code << 1), current_length + 1);
+		generate_code(root->left, codes, (current_code << 1), current_length + 1);//左子树编码为0
 	}
 	if (root->right != NULL) {
-		generate_code(root->right, codes, (current_code << 1) | 1, current_length + 1);
+		generate_code(root->right, codes, (current_code << 1) | 1, current_length + 1);//右子树编码为1
 	}
 }
+#define IO_BUF_SIZE 1048576
 int encode(code* Code, FILE* fp1, char* file) {//编码
 	FILE* fp = fopen(file, "rb");
 	if (fp == NULL) {
 		printf("错误：无法打开源文件 %s\n", file);
 		return -1;
 	}
-	unsigned char* buffer = (unsigned char*)malloc(IO_BUF_SIZE);//读取缓冲区
-	unsigned char* write_buf = (unsigned char*)malloc(IO_BUF_SIZE);//写入缓冲区
-	if (!buffer || !write_buf) {//判断是否成功创建
+	unsigned char* buffer = (unsigned char*)malloc(IO_BUF_SIZE);
+	unsigned char* write_buf = (unsigned char*)malloc(IO_BUF_SIZE);
+	if (!buffer || !write_buf) {
 		free(buffer);
 		free(write_buf);
 		fclose(fp);
 		printf("错误：内存分配失败\n");
 		return -1;
 	}
-	size_t write_pos = 0;//记录写入进度
-	size_t buffer_size = 0;//记录读取进度
-	int bit_length = 0;
+	size_t write_pos = 0;//记录写入缓冲区的位置
+	size_t buffer_size = 0;//记录每次读取的字节数
+	int bit_length = 0;//记录当前缓冲区中未写入文件的位数
 	unsigned int bit_buffer = 0;
-	while ((buffer_size = fread(buffer, 1, IO_BUF_SIZE, fp)) > 0) {
+	while ((buffer_size = fread(buffer, 1, IO_BUF_SIZE, fp)) > 0) {//每次读取一块数据
 		for (size_t i = 0; i < buffer_size; i++) {
 			unsigned char ch = buffer[i];
 			code code1 = Code[ch];
 			unsigned int code_number = code1.code_number;
 			int code_length = code1.code_length;
-			for (int j = code_length - 1; j >= 0; j--) {
+			for (int j = code_length - 1; j >= 0; j--) {//逐个处理编码的每一位
 				int bit = (code_number >> j) & 1;
 				bit_buffer = (bit_buffer << 1) | bit;
 				bit_length++;
-				if (bit_length == 8) {//凑满写入
-					write_buf[write_pos++] = (unsigned char)bit_buffer;
+				if (bit_length == 8) {//如果缓冲区满了，写入文件
+					write_buf[write_pos++] = (unsigned char)bit_buffer;//写入一个字节
 					if (write_pos >= IO_BUF_SIZE) {
 						fwrite(write_buf, 1, write_pos, fp1);
 						write_pos = 0;
@@ -297,10 +297,10 @@ int encode(code* Code, FILE* fp1, char* file) {//编码
 			}
 		}
 	}
-	if (bit_length > 0) {
+	if (bit_length > 0) {//写入剩余的位，补零
 		bit_buffer <<= (8 - bit_length);
 		write_buf[write_pos++] = (unsigned char)bit_buffer;
-	}
+	}//写入剩余数据
 	if (write_pos > 0) {
 		fwrite(write_buf, 1, write_pos, fp1);
 	}
@@ -309,16 +309,17 @@ int encode(code* Code, FILE* fp1, char* file) {//编码
 	fclose(fp);
 	return 0;
 }
-int decodes(node* root, FILE* fp, char* newfile, long long length) {//编码
+int decodes(node* root, FILE* fp, char* newfile, long long length) {//解码
 	if (root == NULL || length <= 0) return 0;
+
 	FILE* fp1 = fopen(newfile, "wb");
 	if (fp1 == NULL) {
 		printf("错误：无法创建目标文件 %s\n", newfile);
 		return -1;
 	}
-	unsigned char* read_buf = (unsigned char*)malloc(IO_BUF_SIZE);//创建读取缓冲区
-	unsigned char* write_buf = (unsigned char*)malloc(IO_BUF_SIZE);//创建写入缓冲区
-	if (!read_buf || !write_buf) {//判断是否创建成功
+	unsigned char* read_buf = (unsigned char*)malloc(IO_BUF_SIZE);//读取缓冲区
+	unsigned char* write_buf = (unsigned char*)malloc(IO_BUF_SIZE);//写入缓冲区
+	if (!read_buf || !write_buf) {//内存分配失败
 		free(read_buf);
 		free(write_buf);
 		fclose(fp1);
@@ -327,39 +328,42 @@ int decodes(node* root, FILE* fp, char* newfile, long long length) {//编码
 	}
 	long long count_length = 0;
 	node* current_node = root;
-	size_t write_pos = 0;//记录写入缓冲区进度
-	size_t bytes_read = 0;//记录读入数量
-	size_t read_pos = 0;//记录读入缓冲区进度
-	while (count_length < length && (bytes_read = fread(read_buf, 1, IO_BUF_SIZE, fp)) > 0) {
+	size_t write_pos = 0;//记录写入缓冲区的位置
+	size_t bytes_read = 0;//记录每次读取的字节数
+	size_t read_pos = 0;//记录读取缓冲区的位置
+	while (count_length < length && (bytes_read = fread(read_buf, 1, IO_BUF_SIZE, fp)) > 0) {//每次读取一块数据
 		for (read_pos = 0; read_pos < bytes_read && count_length < length; read_pos++) {
 			unsigned char bit8 = read_buf[read_pos];
-			for (int i = 7; i >= 0; i--) {
+
+			for (int i = 7; i >= 0; i--) {//逐个处理每个字节的每一位
 				int bit = (bit8 >> i) & 1;
 				current_node = (bit == 0) ? current_node->left : current_node->right;
-				if (current_node == NULL) {
+				if (current_node == NULL) {//路径错误，解码失败
 					free(read_buf);
 					free(write_buf);
 					fclose(fp1);
 					printf("错误：解码失败，路径错误\n");
 					return -1;
 				}
-				if (current_node->left == NULL && current_node->right == NULL) {
+				if (current_node->left == NULL && current_node->right == NULL) {//如果是叶子节点，写入解码结果
 					write_buf[write_pos++] = (unsigned char)current_node->name;
 					count_length++;
 					current_node = root;
-					if (write_pos >= IO_BUF_SIZE) {
+					if (write_pos >= IO_BUF_SIZE) {//写入缓冲区满了，写入文件
 						fwrite(write_buf, 1, write_pos, fp1);
 						write_pos = 0;
 					}
-					if (count_length >= length) goto decode_done;
+
+					if (count_length >= length) goto decode_done;//解码完成，跳出循环
 				}
 			}
 		}
 	}
-decode_done://剩余部分写入
+decode_done://解码完成，写入剩余数据
 	if (write_pos > 0) {
 		fwrite(write_buf, 1, write_pos, fp1);
 	}
+
 	free(read_buf);
 	free(write_buf);
 	fclose(fp1);
@@ -370,7 +374,6 @@ int compress(char* filename,char*newfilename,char*filesuffix) {//压缩
 	fre num1[512] = { 0 };//暂时存储
 	int file_count = 0;
 	int model = check_path_type(filename);//检查路径类型，1为文件夹，2为文件，3为其他
-	printf("[DEBUG] check_path_type(\"%s\") = %d\n", filename, model);
 	fio file_info[1000] = { 0 };
 	frequency(filename, num,model,file_info,&file_count);//统计频率
 	qsort(num, 256, sizeof(fre), comp);//排序频率
@@ -451,7 +454,7 @@ int compress(char* filename,char*newfilename,char*filesuffix) {//压缩
 			    leaf2->right = NULL;
 				min2.point = leaf2;
 			}
-			new_node->num = num1[tail].num;//进行树的连接
+			new_node->num = num1[tail].num;
 			new_node->left = min1.point;
 			new_node->right = min2.point;
 			num1[tail].point = new_node;
@@ -597,7 +600,7 @@ int uncompress( char* filename, char* newfilename) {//解压缩
 			printf("文件夹已存在，无需重复创建。\n");
 		}
 		printf("%d\n", file_count);
-		for(int i=0;i<file_count;i++){
+		for (int i = 0; i < file_count; i++) {//依次解码每一个文件
 			int deresult=decodes(root, fp, file_info[i].name1, file_info[i].size);
 			if(deresult==0){
 				printf("成功解压文件: %s\n", file_info[i].name1);
@@ -611,31 +614,31 @@ int uncompress( char* filename, char* newfilename) {//解压缩
 	free_tree(root);
 	return 0;
 }
-void copy_file_binary(const char* src_path, const char* dest_path) {
+void copy_file_binary(const char* src_path, const char* dest_path) {//二进制复制文件
 	FILE* src = fopen(src_path, "rb");
-	if (!src) {
+	if (!src) {//如果源文件无法打开，输出错误信息并返回
 		printf("错误：无法打开源文件 %s\n", src_path);
 		return;
 	}
 	FILE* dest = fopen(dest_path, "wb");
-	if (!dest) {
+	if (!dest) {//如果目标文件无法创建，输出错误信息并关闭源文件
 		printf("错误：无法创建目标文件 %s\n", dest_path);
 		fclose(src);
 		return;
 	}
 	char buffer[4096];
 	size_t bytes;
-	while ((bytes = fread(buffer, 1, sizeof(buffer), src)) > 0) {
+	while ((bytes = fread(buffer, 1, sizeof(buffer), src)) > 0) {//每次读取一块数据并写入目标文件
 		fwrite(buffer, 1, bytes, dest);
 	}
 	fclose(src);
 	fclose(dest);
 }
-void create_parent_directory(const char* file_path) {
+void create_parent_directory(const char* file_path) {//创建父目录
 	char temp_path[512];
-	strncpy(temp_path, file_path, sizeof(temp_path) - 1);
+	strncpy(temp_path, file_path, sizeof(temp_path) - 1);//复制路径到临时变量
 	temp_path[sizeof(temp_path) - 1] = '\0';
-	char* last_sep = strrchr(temp_path, PATH_SEP);
+	char* last_sep = strrchr(temp_path, PATH_SEP);//找到最后一个路径分隔符
 	if (last_sep != NULL) {
 		*last_sep = '\0'; // 截断，只保留目录部分
 		_mkdir(temp_path);
@@ -646,14 +649,14 @@ char* package_files(const char* packfile, int file_count) {//打包文件
 		printf("错误：打包的目标文件夹名不能为空！\n");
 		return NULL;
 	}
-	if (MKDIR(packfile) != 0) {//创建文件
+	if (MKDIR(packfile) != 0) {
 		printf("提示：文件夹 %s 可能已存在或创建失败，将继续尝试复制文件。\n", packfile);
 	}
 	else {
 		printf("成功创建打包文件夹: %s\n", packfile);
 	}
 	char current_file[512] = { 0 };
-	for (int i = 0; i < file_count; i++) {
+	for (int i = 0; i < file_count; i++) {//依次读取文件路径并复制到打包文件夹
 		printf("请输入第 %d/%d 个文件的路径: ", i + 1, file_count);
 		if (fgets(current_file, sizeof(current_file), stdin) == NULL) {
 			printf("读取文件路径失败，跳过该文件。\n");
@@ -673,16 +676,16 @@ char* package_files(const char* packfile, int file_count) {//打包文件
 			relative_part = current_file; // 没有斜杠则为纯文件名
 		}
 		char dest_path[512];
-		snprintf(dest_path, sizeof(dest_path), "%s%c%s", packfile, PATH_SEP, relative_part);
+		snprintf(dest_path, sizeof(dest_path), "%s%c%s", packfile, PATH_SEP, relative_part);//构建目标路径
 		create_parent_directory(dest_path);
-		copy_file_binary(current_file, dest_path);
+		copy_file_binary(current_file, dest_path);//复制文件
 		printf("已将 %s 封装进 %s\n", relative_part, packfile);
 	}
 	printf("文件夹处理完成！\n");
 	return strdup(packfile);
 }
 int main() {
-    printf("=== 欢迎使用哈夫曼压缩工具 ===\n");
+    printf("=== 欢迎使用霍夫曼压缩工具 ===\n");
 	printf("选择工作模式\n压缩输入：c\n解压缩输入：d\n退出输入：o\n");
 	while (1) {
 		char model_1;//工作模式
@@ -692,7 +695,7 @@ int main() {
 		char newfilename[512]{ 0 };//新文件名
 		scanf("%c", &model_1);//读取工作模式
 		int c;
-		int numoffile = 0;//文件数量
+		int numoffile = 0;
 		while ((c = getchar()) != '\n' && c != EOF);
 		if (model_1 == 'o') {
 			break;
@@ -711,9 +714,9 @@ int main() {
 							printf("读取文件失败\n");
 							continue;
 						}
-						quote_delete(filename);//删除首尾双引号
+						quote_delete(filename);
 						generate_newname(filename, newfilename, 1, filesuffix);//命名
-						result = compress(filename, newfilename, filesuffix);
+						result = compress(filename, newfilename, filesuffix);//压缩
 					}
 					else {
 						printf("检测到多个文件，正在自动为您打包成一个文件夹\n");
@@ -728,8 +731,8 @@ int main() {
 						}
 						char* result_folder = package_files(packfile,numoffile);
 						quote_delete(result_folder);
-						generate_newname(result_folder, newfilename, 1, filesuffix);
-						result = compress(result_folder, newfilename, filesuffix);
+						generate_newname(result_folder, newfilename, 1, filesuffix);//生成新文件名
+						result = compress(result_folder, newfilename, filesuffix);//压缩打包后的文件夹
 					}
 				}
 				else {
@@ -745,8 +748,8 @@ int main() {
 			  continue;
 		       }
 			    quote_delete(filename);
-			    generate_newname(filename, newfilename,0,filesuffix);
-			    result=uncompress(filename,newfilename);
+			    generate_newname(filename, newfilename,0,filesuffix);//命名
+			    result=uncompress(filename,newfilename);//解压缩
 			    break;
 		default:
 			printf("错误：未知的命令\n");
