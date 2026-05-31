@@ -593,9 +593,6 @@ int uncompress( char* filename, char* newfilename) {//解压缩
 			int read_len = (filename_length < 255) ? filename_length : 255;
 			fread(NAME, 1, read_len, fp);
 			NAME[read_len] = '\0';
-			//if (filename_length > read_len) {
-				//fseek(fp, filename_length - read_len, SEEK_CUR);
-			//}
 			fread(&file_info[i].size, sizeof(long long), 1, fp);
 			sprintf_s(file_info[i].name1, 512, "%s\\%s", newfilename, NAME);//拼接完整路径
 		}
@@ -675,6 +672,7 @@ char* package_files(const char* packfile, int file_count) {//打包文件
 			continue;
 		}
 		current_file[strcspn(current_file, "\n")] = '\0';
+		quote_delete(current_file);
 		if (strlen(current_file) == 0) {
 			printf("文件路径为空，跳过。\n");
 			continue;
@@ -696,7 +694,7 @@ char* package_files(const char* packfile, int file_count) {//打包文件
 	return strdup(packfile);
 }
 int main() {
-    printf("=== 欢迎使用哈夫曼压缩工具 v1.0 ===\n");
+    printf("=== 欢迎使用哈夫曼压缩工具 ===\n");
 	printf("选择工作模式\n压缩输入：c\n解压缩输入：d\n退出输入：o\n");
 	while (1) {
 		char model_1;//工作模式
@@ -706,7 +704,7 @@ int main() {
 		char newfilename[512]{ 0 };//新文件名
 		scanf("%c", &model_1);//读取工作模式
 		int c;
-		int numoffile = 0;
+		int numoffile = 0;//文件数量
 		while ((c = getchar()) != '\n' && c != EOF);
 		if (model_1 == 'o') {
 			break;
@@ -725,8 +723,8 @@ int main() {
 							printf("读取文件失败\n");
 							continue;
 						}
-						quote_delete(filename);
-						generate_newname(filename, newfilename, 1, filesuffix);
+						quote_delete(filename);//删除首尾双引号
+						generate_newname(filename, newfilename, 1, filesuffix);//命名
 						result = compress(filename, newfilename, filesuffix);
 					}
 					else {
